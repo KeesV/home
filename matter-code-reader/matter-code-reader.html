@@ -1,0 +1,937 @@
+<title>Matter Code Reader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #eef0f4;
+    --surface: #ffffff;
+    --surface-sunk: #e6e9ef;
+    --ink: #14171d;
+    --ink-dim: #5a6273;
+    --ink-faint: #838b9b;
+    --line: #d5dae2;
+    --line-strong: #b9c0cc;
+    --signal: #a8560a;
+    --signal-soft: #f7ead9;
+    --on-signal: #fffaf4;
+    --bad-ink: #a02a21;
+    --bad-soft: #fbe9e7;
+    --shadow: 0 1px 2px rgba(20, 23, 29, .06), 0 8px 24px -12px rgba(20, 23, 29, .18);
+    --font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --r: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0f1216;
+      --surface: #181c23;
+      --surface-sunk: #12161c;
+      --ink: #e7eaf0;
+      --ink-dim: #99a1b1;
+      --ink-faint: #798291;
+      --line: #272d38;
+      --line-strong: #3a424f;
+      --signal: #e8a340;
+      --signal-soft: #2a2113;
+      --on-signal: #17120a;
+      --bad-ink: #ec8272;
+      --bad-soft: #2c1a17;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -14px rgba(0, 0, 0, .7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0f1216;
+    --surface: #181c23;
+    --surface-sunk: #12161c;
+    --ink: #e7eaf0;
+    --ink-dim: #99a1b1;
+    --ink-faint: #798291;
+    --line: #272d38;
+    --line-strong: #3a424f;
+    --signal: #e8a340;
+    --signal-soft: #2a2113;
+    --on-signal: #17120a;
+    --bad-ink: #ec8272;
+    --bad-soft: #2c1a17;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -14px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 40px 20px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  header { display: flex; flex-direction: column; gap: 6px; }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(26px, 5vw, 34px);
+    letter-spacing: -.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .sub { color: var(--ink-dim); margin: 0; max-width: 62ch; }
+
+  /* ---- drop zone ---- */
+  .drop {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 260px;
+    padding: 28px;
+    background: var(--surface);
+    border: 2px dashed var(--line-strong);
+    border-radius: var(--r);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop:focus-visible { border-color: var(--signal); }
+  .drop:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+  .drop.over { border-color: var(--signal); background: var(--signal-soft); }
+  .drop.has-image { border-style: solid; border-color: var(--line); padding: 14px; min-height: 0; cursor: default; }
+  .drop-inner { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .drop-title { font-family: var(--font-display); font-weight: 600; font-size: 17px; }
+  .drop-hint { color: var(--ink-faint); font-size: 13.5px; max-width: 44ch; }
+  .lens { width: 40px; height: 40px; color: var(--ink-faint); }
+  canvas#preview { display: none; max-width: 100%; height: auto; border-radius: 6px; }
+  .drop.has-image canvas#preview { display: block; }
+  .drop.has-image .drop-inner { display: none; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button {
+    font: inherit;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 14px;
+    padding: 9px 15px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  button:hover { border-color: var(--signal); }
+  button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  button.primary { background: var(--signal); border-color: var(--signal); color: var(--on-signal); }
+  button.primary:hover { filter: brightness(1.08); }
+
+  /* ---- result ---- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .card[hidden] { display: none; }
+  .code-block { padding: 22px 24px 20px; display: flex; flex-direction: column; gap: 4px; }
+  .eyebrow {
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .code-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .code {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(30px, 7vw, 44px);
+    letter-spacing: .01em;
+    color: var(--signal);
+    margin: 0;
+    user-select: all;
+  }
+  .code-alt { font-family: var(--font-mono); font-size: 13px; color: var(--ink-faint); }
+
+  .fields { border-top: 1px solid var(--line); background: var(--surface-sunk); }
+  dl { margin: 0; padding: 16px 24px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px 24px; }
+  dt { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+  dd { margin: 2px 0 0; font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ink); overflow-wrap: anywhere; }
+  dd .note { font-family: var(--font-body); color: var(--ink-dim); font-size: 13px; }
+
+  .status { padding: 14px 18px; border-radius: var(--r); border: 1px solid var(--line); background: var(--surface); font-size: 14.5px; }
+  .status[hidden] { display: none; }
+  .status.err { border-color: var(--bad-ink); background: var(--bad-soft); color: var(--bad-ink); }
+  .status.err strong { display: block; font-family: var(--font-display); margin-bottom: 2px; }
+  .status.busy { color: var(--ink-dim); }
+
+  .manual { display: flex; flex-direction: column; gap: 8px; }
+  .manual label { font-size: 13px; color: var(--ink-dim); }
+  .manual-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  input[type="text"] {
+    flex: 1 1 260px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--ink);
+  }
+  input[type="text"]:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; border-color: var(--signal); }
+
+  footer { color: var(--ink-faint); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
+  footer p { margin: 0 0 6px; max-width: 66ch; }
+  code.inline { font-family: var(--font-mono); font-size: .92em; background: var(--surface-sunk); padding: 1px 5px; border-radius: 4px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Matter Code Reader</h1>
+    <p class="sub">Drop a photo of the QR label on a Matter device and get the 11-digit manual pairing code you can type into Home Assistant.</p>
+  </header>
+
+  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Drop a QR photo here, or press Enter to choose a file">
+    <div class="drop-inner">
+      <svg class="lens" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+        <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+        <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+        <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+        <path d="M14 14h3v3h-3zM19 14h2M14 19h3M19 18v3"></path>
+      </svg>
+      <span class="drop-title">Drop a photo here</span>
+      <span class="drop-hint">Or click to choose one, paste from the clipboard, or take a picture on your phone. Blurry and angled shots are fine.</span>
+    </div>
+    <canvas id="preview"></canvas>
+  </div>
+
+  <div class="actions">
+    <button type="button" id="pick" class="primary">Choose photo</button>
+    <button type="button" id="shoot">Take picture</button>
+    <button type="button" id="reset" hidden>Clear</button>
+    <input type="file" id="file" accept="image/*" class="sr">
+    <input type="file" id="cam" accept="image/*" capture="environment" class="sr">
+  </div>
+
+  <div class="status" id="status" hidden></div>
+
+  <div class="card" id="result" hidden>
+    <div class="code-block">
+      <span class="eyebrow">Manual pairing code</span>
+      <div class="code-row">
+        <p class="code" id="code">0000-000-0000</p>
+        <button type="button" id="copy">Copy</button>
+      </div>
+      <span class="code-alt" id="codeplain"></span>
+    </div>
+    <div class="fields">
+      <dl id="fields"></dl>
+    </div>
+  </div>
+
+  <div class="manual">
+    <label for="paste">Already have the payload text? Paste it here.</label>
+    <div class="manual-row">
+      <input type="text" id="paste" placeholder="MT:..." spellcheck="false" autocapitalize="characters">
+      <button type="button" id="decode">Decode</button>
+    </div>
+  </div>
+
+  <footer>
+    <p>Everything runs in this page. Your photo is never uploaded &mdash; the QR is located and decoded in the browser, and nothing leaves your device.</p>
+    <p>In Home Assistant, go to <em>Settings &rarr; Devices &amp; Services &rarr; Add Integration &rarr; Matter</em> and choose the option for entering a code by hand. The <code class="inline">MT:</code> payload usually works there too.</p>
+  </footer>
+</div>
+
+<script>
+"use strict";
+/* ============================ QR decode ============================ */
+const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+(() => { let x = 1; for (let i = 0; i < 255; i++) { EXP[i] = x; LOG[x] = i; x <<= 1; if (x & 0x100) x ^= 0x11D; } for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255]; })();
+const gmul = (a, b) => (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]];
+const gdiv = (a, b) => a === 0 ? 0 : EXP[LOG[a] + 255 - LOG[b]];
+const ginv = a => EXP[255 - LOG[a]];
+const gpow = n => EXP[((n % 255) + 255) % 255];
+
+function rsDecode(msg, nsym) {
+  const n = msg.length, synd = new Array(nsym).fill(0);
+  let bad = false;
+  for (let i = 0; i < nsym; i++) {
+    let s = 0; const x = gpow(i);
+    for (let j = 0; j < n; j++) s = gmul(s, x) ^ msg[j];
+    synd[i] = s; if (s) bad = true;
+  }
+  if (!bad) return msg.slice(0, n - nsym);
+  let C = [1], B = [1], L = 0, m = 1, b = 1;
+  for (let k = 0; k < nsym; k++) {
+    let d = synd[k];
+    for (let i = 1; i <= L; i++) d ^= gmul(C[i] || 0, synd[k - i]);
+    if (d === 0) { m++; continue; }
+    const coef = gmul(d, ginv(b)), T = C.slice();
+    for (let i = 0; i < B.length; i++) { const j = i + m; C[j] = (C[j] || 0) ^ gmul(coef, B[i]); }
+    if (2 * L <= k) { L = k + 1 - L; B = T; b = d; m = 1; } else m++;
+  }
+  const lam = C, nerr = lam.length - 1;
+  if (nerr < 1 || nerr > nsym / 2) return null;
+  const pos = [];
+  for (let i = 0; i < n; i++) {
+    let v = 0;
+    for (let k = 0; k < lam.length; k++) v ^= gmul(lam[k] || 0, gpow(-i * k));
+    if (v === 0) pos.push(i);
+  }
+  if (pos.length !== nerr) return null;
+  const omega = new Array(nsym).fill(0);
+  for (let i = 0; i < nsym; i++) {
+    let s = 0;
+    for (let k = 0; k <= i; k++) s ^= gmul(synd[i - k], lam[k] || 0);
+    omega[i] = s;
+  }
+  const lamd = [];
+  for (let i = 1; i < lam.length; i += 2) lamd[(i - 1) / 2] = lam[i] || 0;
+  const out = Uint8Array.from(msg);
+  for (const i of pos) {
+    let on = 0, dn = 0;
+    for (let k = 0; k < nsym; k++) on ^= gmul(omega[k], gpow(-i * k));
+    for (let k = 0; k < lamd.length; k++) dn ^= gmul(lamd[k] || 0, gpow(-i * 2 * k));
+    if (dn === 0) return null;
+    out[n - 1 - i] ^= gmul(gpow(i), gdiv(on, dn));
+  }
+  for (let i = 0; i < nsym; i++) {
+    let s = 0; const x = gpow(i);
+    for (let j = 0; j < n; j++) s = gmul(s, x) ^ out[j];
+    if (s) return null;
+  }
+  return out.slice(0, n - nsym);
+}
+
+const EC_TABLE = {
+  1: { L: [7,1,19,0,0], M: [10,1,16,0,0], Q: [13,1,13,0,0], H: [17,1,9,0,0] },
+  2: { L: [10,1,34,0,0], M: [16,1,28,0,0], Q: [22,1,22,0,0], H: [28,1,16,0,0] },
+  3: { L: [15,1,55,0,0], M: [26,1,44,0,0], Q: [18,2,17,0,0], H: [22,2,13,0,0] },
+  4: { L: [20,1,80,0,0], M: [18,2,32,0,0], Q: [26,2,24,0,0], H: [16,4,9,0,0] },
+  5: { L: [26,1,108,0,0], M: [24,2,43,0,0], Q: [18,2,15,2,16], H: [22,2,11,2,12] },
+  6: { L: [18,2,68,0,0], M: [16,4,27,0,0], Q: [24,4,19,0,0], H: [28,4,15,0,0] },
+  7: { L: [20,2,78,0,0], M: [18,4,31,0,0], Q: [18,2,14,4,15], H: [26,4,13,1,14] },
+  8: { L: [24,2,97,0,0], M: [22,2,38,2,39], Q: [22,4,18,2,19], H: [26,4,14,2,15] },
+  9: { L: [30,2,116,0,0], M: [22,3,36,2,37], Q: [20,4,16,4,17], H: [24,4,12,4,13] },
+  10:{ L: [18,2,68,2,69], M: [26,4,43,1,44], Q: [24,6,19,2,20], H: [28,6,15,2,16] },
+};
+const ALIGN = { 1: [], 2: [6,18], 3: [6,22], 4: [6,26], 5: [6,30], 6: [6,34], 7: [6,22,38], 8: [6,24,42], 9: [6,26,46], 10: [6,28,50] };
+const EC_ORDER = ['M', 'L', 'H', 'Q'];
+
+class BitMatrix {
+  constructor(w, h) { this.width = w; this.height = h; this.bits = new Uint8Array(w * h); }
+  get(x, y) { return (x < 0 || y < 0 || x >= this.width || y >= this.height) ? false : this.bits[y * this.width + x] === 1; }
+  set(x, y, v) { if (x >= 0 && y >= 0 && x < this.width && y < this.height) this.bits[y * this.width + x] = v ? 1 : 0; }
+  setRegion(l, t, w, h) { for (let y = t; y < t + h; y++) for (let x = l; x < l + w; x++) this.set(x, y, true); }
+}
+
+const BLK = 8;
+function binarize(rgba, width, height, invert) {
+  const gray = new Uint8ClampedArray(width * height);
+  for (let i = 0, n = width * height; i < n; i++) {
+    const p = i * 4;
+    gray[i] = (rgba[p] * 0.299 + rgba[p + 1] * 0.587 + rgba[p + 2] * 0.114) | 0;
+  }
+  const bw = Math.ceil(width / BLK), bh = Math.ceil(height / BLK);
+  const avg = new Float32Array(bw * bh);
+  for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+    let sum = 0, cnt = 0, mn = 255, mx = 0;
+    const x1 = Math.min(width, (bx + 1) * BLK), y1 = Math.min(height, (by + 1) * BLK);
+    for (let y = by * BLK; y < y1; y++) for (let x = bx * BLK; x < x1; x++) {
+      const v = gray[y * width + x]; sum += v; cnt++;
+      if (v < mn) mn = v; if (v > mx) mx = v;
+    }
+    let t = cnt ? sum / cnt : 128;
+    if (mx - mn <= 24) t = mn > 100 ? mn - 1 : 128;
+    avg[by * bw + bx] = t;
+  }
+  const out = new BitMatrix(width, height);
+  for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+    let sum = 0, cnt = 0;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const nx = bx + dx, ny = by + dy;
+      if (nx >= 0 && ny >= 0 && nx < bw && ny < bh) { sum += avg[ny * bw + nx]; cnt++; }
+    }
+    const t = sum / cnt;
+    const x1 = Math.min(width, (bx + 1) * BLK), y1 = Math.min(height, (by + 1) * BLK);
+    for (let y = by * BLK; y < y1; y++) for (let x = bx * BLK; x < x1; x++) {
+      const dark = gray[y * width + x] < t;
+      out.set(x, y, invert ? !dark : dark);
+    }
+  }
+  return out;
+}
+
+function runsAlong(len, sample) {
+  const runs = []; let cur = sample(0), start = 0;
+  for (let i = 1; i < len; i++) { const v = sample(i); if (v !== cur) { runs.push({ v: cur, s: start, l: i - start }); cur = v; start = i; } }
+  runs.push({ v: cur, s: start, l: len - start });
+  return runs;
+}
+function finderHits(runs) {
+  const hits = [];
+  for (let i = 0; i + 4 < runs.length; i++) {
+    const r = runs.slice(i, i + 5);
+    if (!r[0].v || r[1].v || !r[2].v || r[3].v || !r[4].v) continue;
+    const total = r[0].l + r[1].l + r[2].l + r[3].l + r[4].l;
+    if (total < 7) continue;
+    const m = total / 7, tol = m * 0.55;
+    if (Math.abs(r[0].l - m) <= tol && Math.abs(r[1].l - m) <= tol &&
+        Math.abs(r[2].l - 3 * m) <= 3 * tol &&
+        Math.abs(r[3].l - m) <= tol && Math.abs(r[4].l - m) <= tol) {
+      hits.push({ center: r[2].s + r[2].l / 2, module: m });
+    }
+  }
+  return hits;
+}
+
+/* Module size measured along an arbitrary axis. A run-length estimate taken
+   across image rows inflates by up to sqrt(2) on a rotated code. */
+function bwbRun(mx, fromX, fromY, toX, toY) {
+  const steep = Math.abs(toY - fromY) > Math.abs(toX - fromX);
+  if (steep) { [fromX, fromY] = [fromY, fromX]; [toX, toY] = [toY, toX]; }
+  const dx = Math.abs(toX - fromX), dy = Math.abs(toY - fromY);
+  let error = -dx / 2;
+  const xstep = fromX < toX ? 1 : -1, ystep = fromY < toY ? 1 : -1;
+  let state = 0;
+  const xLimit = toX + xstep;
+  for (let x = fromX, y = fromY; x !== xLimit; x += xstep) {
+    const rx = steep ? y : x, ry = steep ? x : y;
+    if ((state === 1) === mx.get(rx, ry)) {
+      if (state === 2) return Math.hypot(x - fromX, y - fromY);
+      state++;
+    }
+    error += dy;
+    if (error > 0) { if (y === toY) break; y += ystep; error -= dx; }
+  }
+  if (state === 2) return Math.hypot(toX + xstep - fromX, toY - fromY);
+  return NaN;
+}
+function bwbBothWays(mx, fromX, fromY, toX, toY) {
+  let result = bwbRun(mx, fromX, fromY, toX, toY), scale = 1;
+  let otherToX = fromX - (toX - fromX);
+  if (otherToX < 0) { scale = fromX / (fromX - otherToX); otherToX = 0; }
+  else if (otherToX >= mx.width) { scale = (mx.width - 1 - fromX) / (otherToX - fromX); otherToX = mx.width - 1; }
+  let otherToY = Math.trunc(fromY - (toY - fromY) * scale);
+  scale = 1;
+  if (otherToY < 0) { scale = fromY / (fromY - otherToY); otherToY = 0; }
+  else if (otherToY >= mx.height) { scale = (mx.height - 1 - fromY) / (otherToY - fromY); otherToY = mx.height - 1; }
+  otherToX = Math.trunc(fromX + (otherToX - fromX) * scale);
+  result += bwbRun(mx, fromX, fromY, otherToX, otherToY);
+  return result - 1;
+}
+function moduleOneWay(mx, a, b) {
+  const e1 = bwbBothWays(mx, Math.trunc(a.x), Math.trunc(a.y), Math.trunc(b.x), Math.trunc(b.y));
+  const e2 = bwbBothWays(mx, Math.trunc(b.x), Math.trunc(b.y), Math.trunc(a.x), Math.trunc(a.y));
+  if (Number.isNaN(e1)) return e2 / 7;
+  if (Number.isNaN(e2)) return e1 / 7;
+  return (e1 + e2) / 14;
+}
+
+function finderGroups(mx) {
+  const cands = [];
+  for (let y = 0; y < mx.height; y++) {
+    const hs = finderHits(runsAlong(mx.width, x => mx.get(x, y)));
+    for (const h of hs) {
+      const cx = Math.round(h.center);
+      const vs = finderHits(runsAlong(mx.height, yy => mx.get(cx, yy)));
+      for (const v of vs) {
+        if (Math.abs(v.center - y) > h.module * 2) continue;
+        if (v.module > h.module * 2 || h.module > v.module * 2) continue;
+        cands.push({ x: h.center, y: v.center, module: (h.module + v.module) / 2 });
+      }
+    }
+  }
+  const groups = [];
+  for (const c of cands) {
+    const g = groups.find(g => Math.hypot(g.x - c.x, g.y - c.y) < Math.max(g.module, c.module) * 1.2);
+    if (g) { g.n++; g.sx += c.x; g.sy += c.y; g.sm += c.module; g.x = g.sx / g.n; g.y = g.sy / g.n; g.module = g.sm / g.n; }
+    else groups.push({ x: c.x, y: c.y, module: c.module, n: 1, sx: c.x, sy: c.y, sm: c.module });
+  }
+  return groups.sort((a, b) => b.n - a.n);
+}
+
+function locate(mx) {
+  const groups = finderGroups(mx);
+  const strong = groups.filter(g => g.n >= 2);
+  const pool = (strong.length >= 3 ? strong : groups).slice(0, 14);
+  if (pool.length < 3) return null;
+  /* Rank triples by how much evidence backs them, not geometry alone: a chance
+     right-angle among weak spurious hits otherwise beats the real finders. */
+  let best = null;
+  const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+  for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) for (let k = j + 1; k < pool.length; k++) {
+    const t = [pool[i], pool[j], pool[k]];
+    const ms = t.map(p => p.module);
+    if (Math.max(...ms) > Math.min(...ms) * 1.8) continue;
+    const sides = [[0,1,2],[1,2,0],[2,0,1]].map(([a, b, c]) => ({ len: d2(t[a], t[b]), corner: c }));
+    sides.sort((a, b) => b.len - a.len);
+    const hyp = sides[0], l1 = sides[1], l2 = sides[2];
+    if (l2.len < 1) continue;
+    const legErr = Math.abs(l1.len - l2.len) / Math.max(l1.len, l2.len);
+    const rightErr = Math.abs(hyp.len - (l1.len + l2.len)) / hyp.len;
+    const geom = legErr + rightErr;
+    if (geom > 0.8) continue;
+    const strength = t[0].n + t[1].n + t[2].n;
+    if (!best || strength > best.strength || (strength === best.strength && geom < best.geom)) {
+      best = { geom, strength, tl: t[hyp.corner], rest: t.filter((_, n) => n !== hyp.corner), module: ms.reduce((a, b) => a + b) / 3 };
+    }
+  }
+  if (!best) return null;
+  const tl = best.tl;
+  const [p, q] = best.rest;
+  const cross = (p.x - tl.x) * (q.y - tl.y) - (p.y - tl.y) * (q.x - tl.x);
+  const tr = cross > 0 ? p : q, bl = cross > 0 ? q : p;
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const refined = (moduleOneWay(mx, tl, tr) + moduleOneWay(mx, tl, bl)) / 2;
+  const module = (Number.isFinite(refined) && refined > 0.5) ? refined : best.module;
+  const raw = (dist(tl, tr) + dist(tl, bl)) / 2 / module + 7;
+  let dim = Math.round((raw - 17) / 4) * 4 + 17;
+  if (dim < 21) dim = 21;
+  if (dim > 57) return null;
+  return { tl, tr, bl, dim, module };
+}
+
+function findAlignment(mx, cx, cy, module) {
+  /* Centre module is dark, ringed by light, ringed by dark. The reliable
+     signature is light-dark-light: the outer ring merges with data modules. */
+  const rad = Math.max(4, Math.round(module * 2.5));
+  const tol = Math.max(1, module * 0.6);
+  const y0 = Math.max(0, Math.round(cy - rad)), y1 = Math.min(mx.height - 1, Math.round(cy + rad));
+  let best = null;
+  for (let y = y0; y <= y1; y++) {
+    const runs = runsAlong(mx.width, x => mx.get(x, y));
+    for (let i = 0; i + 2 < runs.length; i++) {
+      const [a, b, c] = runs.slice(i, i + 3);
+      if (a.v || !b.v || c.v) continue;
+      if (Math.abs(b.l - module) > tol) continue;
+      if (a.l < module * 0.4 || c.l < module * 0.4) continue;
+      const px = b.s + b.l / 2;
+      if (Math.abs(px - cx) > rad) continue;
+      const xi = Math.round(px);
+      let up = 0, dn = 0;
+      while (up < module * 2 && mx.get(xi, y - up - 1)) up++;
+      while (dn < module * 2 && mx.get(xi, y + dn + 1)) dn++;
+      if (Math.abs(up + dn + 1 - module) > tol) continue;
+      const py = y + (dn - up) / 2;
+      if (Math.abs(py - cy) > rad) continue;
+      const d = Math.hypot(px - cx, py - cy);
+      if (!best || d < best.d) best = { x: px, y: py, d };
+    }
+  }
+  return best;
+}
+
+class PT {
+  constructor(a11, a21, a31, a12, a22, a32, a13, a23, a33) { Object.assign(this, { a11, a21, a31, a12, a22, a32, a13, a23, a33 }); }
+  map(x, y) {
+    const d = this.a13 * x + this.a23 * y + this.a33;
+    return [(this.a11 * x + this.a21 * y + this.a31) / d, (this.a12 * x + this.a22 * y + this.a32) / d];
+  }
+  times(o) {
+    return new PT(
+      this.a11*o.a11 + this.a21*o.a12 + this.a31*o.a13, this.a11*o.a21 + this.a21*o.a22 + this.a31*o.a23, this.a11*o.a31 + this.a21*o.a32 + this.a31*o.a33,
+      this.a12*o.a11 + this.a22*o.a12 + this.a32*o.a13, this.a12*o.a21 + this.a22*o.a22 + this.a32*o.a23, this.a12*o.a31 + this.a22*o.a32 + this.a32*o.a33,
+      this.a13*o.a11 + this.a23*o.a12 + this.a33*o.a13, this.a13*o.a21 + this.a23*o.a22 + this.a33*o.a23, this.a13*o.a31 + this.a23*o.a32 + this.a33*o.a33);
+  }
+  adjoint() {
+    return new PT(
+      this.a22*this.a33 - this.a23*this.a32, this.a23*this.a31 - this.a21*this.a33, this.a21*this.a32 - this.a22*this.a31,
+      this.a13*this.a32 - this.a12*this.a33, this.a11*this.a33 - this.a13*this.a31, this.a12*this.a31 - this.a11*this.a32,
+      this.a12*this.a23 - this.a13*this.a22, this.a13*this.a21 - this.a11*this.a23, this.a11*this.a22 - this.a12*this.a21);
+  }
+  static sq2quad(x0, y0, x1, y1, x2, y2, x3, y3) {
+    const dx3 = x0 - x1 + x2 - x3, dy3 = y0 - y1 + y2 - y3;
+    if (dx3 === 0 && dy3 === 0) return new PT(x1 - x0, x2 - x1, x0, y1 - y0, y2 - y1, y0, 0, 0, 1);
+    const dx1 = x1 - x2, dx2 = x3 - x2, dy1 = y1 - y2, dy2 = y3 - y2;
+    const den = dx1 * dy2 - dx2 * dy1;
+    const a13 = (dx3 * dy2 - dx2 * dy3) / den, a23 = (dx1 * dy3 - dx3 * dy1) / den;
+    return new PT(x1 - x0 + a13 * x1, x3 - x0 + a23 * x3, x0, y1 - y0 + a13 * y1, y3 - y0 + a23 * y3, y0, a13, a23, 1);
+  }
+  static quad2quad(f, t) { return PT.sq2quad(...t).times(PT.sq2quad(...f).adjoint()); }
+}
+
+function extract(mx, loc) {
+  const { tl, tr, bl, dim, module } = loc;
+  const ver = (dim - 17) / 4;
+  const ex = { x: (tr.x - tl.x) / (dim - 7), y: (tr.y - tl.y) / (dim - 7) };
+  const ey = { x: (bl.x - tl.x) / (dim - 7), y: (bl.y - tl.y) / (dim - 7) };
+  const affine = (u, v) => ({ x: tl.x + (u - 3.5) * ex.x + (v - 3.5) * ey.x, y: tl.y + (u - 3.5) * ex.y + (v - 3.5) * ey.y });
+  let srcBR = [dim - 3.5, dim - 3.5], dstBR = affine(dim - 3.5, dim - 3.5);
+  if (ver >= 2) {
+    const est = affine(dim - 6.5, dim - 6.5);
+    const found = findAlignment(mx, est.x, est.y, module);
+    if (found) { srcBR = [dim - 6.5, dim - 6.5]; dstBR = found; }
+  }
+  const t = PT.quad2quad(
+    [3.5, 3.5, dim - 3.5, 3.5, srcBR[0], srcBR[1], 3.5, dim - 3.5],
+    [tl.x, tl.y, tr.x, tr.y, dstBR.x, dstBR.y, bl.x, bl.y]);
+  const out = new BitMatrix(dim, dim);
+  for (let y = 0; y < dim; y++) for (let x = 0; x < dim; x++) {
+    const [px, py] = t.map(x + 0.5, y + 0.5);
+    out.set(x, y, mx.get(Math.round(px), Math.round(py)));
+  }
+  out.corners = [affine(0, 0), affine(dim, 0), affine(dim, dim), affine(0, dim)];
+  return out;
+}
+
+const bch = d => { let r = d << 10; for (let i = 14; i >= 10; i--) if ((r >> i) & 1) r ^= 0x537 << (i - 10); return ((d << 10) | (r & 0x3ff)) ^ 0x5412; };
+const FORMAT_LOOKUP = (() => { const m = new Map(); for (let d = 0; d < 32; d++) m.set(bch(d), d); return m; })();
+function decodeFormat(bits) {
+  let best = null;
+  for (const [masked, d] of FORMAT_LOOKUP) {
+    let diff = 0, v = masked ^ bits;
+    while (v) { diff += v & 1; v >>= 1; }
+    if (!best || diff < best.diff) best = { diff, d };
+  }
+  return (best && best.diff <= 3) ? { ec: EC_ORDER[(best.d >> 3) & 3], mask: best.d & 7 } : null;
+}
+const MASKS = [
+  (i, j) => (i + j) % 2 === 0,
+  (i) => i % 2 === 0,
+  (i, j) => j % 3 === 0,
+  (i, j) => (i + j) % 3 === 0,
+  (i, j) => (Math.floor(i / 2) + Math.floor(j / 3)) % 2 === 0,
+  (i, j) => (i * j) % 2 + (i * j) % 3 === 0,
+  (i, j) => ((i * j) % 2 + (i * j) % 3) % 2 === 0,
+  (i, j) => ((i + j) % 2 + (i * j) % 3) % 2 === 0,
+];
+function functionPattern(dim, ver) {
+  const f = new BitMatrix(dim, dim);
+  f.setRegion(0, 0, 9, 9);
+  f.setRegion(dim - 8, 0, 8, 9);
+  f.setRegion(0, dim - 8, 9, 8);
+  const ap = ALIGN[ver] || [];
+  for (let x = 0; x < ap.length; x++) for (let y = 0; y < ap.length; y++) {
+    if ((x === 0 && (y === 0 || y === ap.length - 1)) || (x === ap.length - 1 && y === 0)) continue;
+    f.setRegion(ap[y] - 2, ap[x] - 2, 5, 5);
+  }
+  f.setRegion(6, 9, 1, dim - 17);
+  f.setRegion(9, 6, dim - 17, 1);
+  if (ver > 6) { f.setRegion(dim - 11, 0, 3, 6); f.setRegion(0, dim - 11, 6, 3); }
+  return f;
+}
+function readFormatBits(m) {
+  const dim = m.width;
+  let b1 = 0;
+  for (let i = 0; i < 6; i++) b1 = (b1 << 1) | (m.get(i, 8) ? 1 : 0);
+  b1 = (b1 << 1) | (m.get(7, 8) ? 1 : 0);
+  b1 = (b1 << 1) | (m.get(8, 8) ? 1 : 0);
+  b1 = (b1 << 1) | (m.get(8, 7) ? 1 : 0);
+  for (let i = 5; i >= 0; i--) b1 = (b1 << 1) | (m.get(8, i) ? 1 : 0);
+  let b2 = 0;
+  for (let j = dim - 1; j >= dim - 7; j--) b2 = (b2 << 1) | (m.get(8, j) ? 1 : 0);
+  for (let i = dim - 8; i < dim; i++) b2 = (b2 << 1) | (m.get(i, 8) ? 1 : 0);
+  return [b1, b2];
+}
+function readCodewords(m, ver, mask) {
+  const dim = m.width, fp = functionPattern(dim, ver), maskFn = MASKS[mask];
+  const out = []; let cur = 0, nbits = 0, up = true;
+  for (let j = dim - 1; j > 0; j -= 2) {
+    if (j === 6) j--;
+    for (let c = 0; c < dim; c++) {
+      const i = up ? dim - 1 - c : c;
+      for (let col = 0; col < 2; col++) {
+        const x = j - col;
+        if (fp.get(x, i)) continue;
+        let bit = m.get(x, i);
+        if (maskFn(i, x)) bit = !bit;
+        cur = (cur << 1) | (bit ? 1 : 0);
+        if (++nbits === 8) { out.push(cur); cur = 0; nbits = 0; }
+      }
+    }
+    up = !up;
+  }
+  return Uint8Array.from(out);
+}
+function deinterleave(raw, ver, ec) {
+  const [ecb, n1, d1, n2, d2] = EC_TABLE[ver][ec];
+  const blocks = [];
+  for (let i = 0; i < n1; i++) blocks.push({ len: d1, data: [] });
+  for (let i = 0; i < n2; i++) blocks.push({ len: d2, data: [] });
+  const maxLen = Math.max(d1, d2 || 0);
+  let p = 0;
+  for (let i = 0; i < maxLen; i++) for (const b of blocks) if (i < b.len) b.data.push(raw[p++]);
+  for (let i = 0; i < ecb; i++) for (const b of blocks) b.data.push(raw[p++]);
+  const out = [];
+  for (const b of blocks) {
+    const fixed = rsDecode(Uint8Array.from(b.data), ecb);
+    if (!fixed) return null;
+    out.push(...fixed);
+  }
+  return Uint8Array.from(out);
+}
+const ALNUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
+function readSegments(bytes, ver) {
+  let bit = 0;
+  const total = bytes.length * 8;
+  const take = n => { let v = 0; for (let i = 0; i < n; i++) { if (bit >= total) throw new Error('overrun'); v = (v << 1) | ((bytes[bit >> 3] >> (7 - (bit & 7))) & 1); bit++; } return v; };
+  const cc = mode => { const small = ver <= 9; return mode === 1 ? (small ? 10 : 12) : mode === 2 ? (small ? 9 : 11) : (small ? 8 : 16); };
+  let text = '';
+  while (bit + 4 <= total) {
+    const mode = take(4);
+    if (mode === 0) break;
+    if (mode === 7) { const b = take(8); if (b & 0x80) take(8); continue; }
+    const count = take(cc(mode));
+    if (mode === 1) {
+      let i = 0;
+      for (; i + 3 <= count; i += 3) text += String(take(10)).padStart(3, '0');
+      if (count - i === 2) text += String(take(7)).padStart(2, '0');
+      else if (count - i === 1) text += String(take(4));
+    } else if (mode === 2) {
+      let i = 0;
+      for (; i + 2 <= count; i += 2) { const v = take(11); text += ALNUM[Math.floor(v / 45)] + ALNUM[v % 45]; }
+      if (count - i === 1) text += ALNUM[take(6)];
+    } else if (mode === 4) {
+      const buf = [];
+      for (let i = 0; i < count; i++) buf.push(take(8));
+      text += new TextDecoder('utf-8').decode(Uint8Array.from(buf));
+    } else throw new Error('unsupported mode');
+  }
+  return text;
+}
+function decodeMatrix(m) {
+  const dim = m.width, ver = (dim - 17) / 4;
+  if (!EC_TABLE[ver]) return null;
+  for (const bits of readFormatBits(m)) {
+    const fmt = decodeFormat(bits);
+    if (!fmt) continue;
+    try {
+      const raw = readCodewords(m, ver, fmt.mask);
+      const bytes = deinterleave(raw, ver, fmt.ec);
+      if (!bytes) continue;
+      const text = readSegments(bytes, ver);
+      if (text) return text;
+    } catch (e) { /* try the other format copy */ }
+  }
+  return null;
+}
+
+function decodeQR(rgba, width, height) {
+  for (const invert of [false, true]) {
+    const mx = binarize(rgba, width, height, invert);
+    const loc = locate(mx);
+    if (!loc) continue;
+    const grid = extract(mx, loc);
+    const text = decodeMatrix(grid);
+    if (text) return { text, corners: grid.corners };
+  }
+  return null;
+}
+
+/* ============================ Matter payload ============================ */
+const B38 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.';
+const VD = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]];
+const VP = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
+const VINV = [0,4,3,2,1,5,6,7,8,9];
+function verhoeff(num) { let c = 0; for (let i = 0; i < num.length; i++) c = VD[c][VP[(i + 1) % 8][+num[num.length - 1 - i]]]; return VINV[c]; }
+
+function decodeMatter(raw) {
+  const s = String(raw).trim().toUpperCase().replace(/\s+/g, '');
+  if (!s.startsWith('MT:')) return { ok: false, reason: 'not-matter', text: s };
+  const body = s.slice(3);
+  if (!/^[0-9A-Z\-.]+$/.test(body)) return { ok: false, reason: 'bad', text: s };
+  const bytes = [];
+  for (let i = 0; i < body.length; i += 5) {
+    const chunk = body.slice(i, i + 5);
+    const n = { 5: 3, 4: 2, 2: 1 }[chunk.length];
+    if (!n) return { ok: false, reason: 'bad', text: s };
+    let v = 0;
+    for (let j = 0; j < chunk.length; j++) {
+      const idx = B38.indexOf(chunk[j]);
+      if (idx < 0) return { ok: false, reason: 'bad', text: s };
+      v += idx * 38 ** j;
+    }
+    for (let k = 0; k < n; k++) bytes.push((v >> (8 * k)) & 0xff);
+  }
+  if (bytes.length < 11) return { ok: false, reason: 'bad', text: s };
+  const bits = (off, len) => { let v = 0; for (let i = 0; i < len; i++) { const b = off + i; v += ((bytes[b >> 3] >> (b & 7)) & 1) * 2 ** i; } return v; };
+  const vendorId = bits(3, 16), productId = bits(19, 16);
+  const caps = bits(37, 8), discriminator = bits(45, 12), passcode = bits(57, 27);
+  if (passcode === 0) return { ok: false, reason: 'bad', text: s };
+  const short = (discriminator >> 8) & 0xf;
+  const partial = `${short >> 2}${String(((short & 3) << 14) | (passcode & 0x3fff)).padStart(5, '0')}${String(passcode >> 14).padStart(4, '0')}`;
+  const code = partial + verhoeff(partial);
+  const capNames = [[0, 'Soft-AP'], [1, 'Bluetooth LE'], [2, 'On network'], [3, 'Wi-Fi PAF']].filter(([b]) => caps >> b & 1).map(([, n]) => n);
+  return {
+    ok: true, text: s, code,
+    pretty: `${code.slice(0, 4)}-${code.slice(4, 7)}-${code.slice(7)}`,
+    vendorId, productId, discriminator, capNames,
+    passcode: String(passcode).padStart(8, '0'),
+  };
+}
+
+/* ============================ UI ============================ */
+const $ = id => document.getElementById(id);
+const drop = $('drop'), preview = $('preview'), statusEl = $('status'), result = $('result');
+
+function setStatus(kind, html) {
+  if (!kind) { statusEl.hidden = true; return; }
+  statusEl.hidden = false;
+  statusEl.className = 'status ' + kind;
+  statusEl.innerHTML = html;
+}
+
+function show(m) {
+  result.hidden = false;
+  $('code').textContent = m.pretty;
+  $('codeplain').textContent = m.code + '  ·  ' + m.text;
+  const rows = [
+    ['Vendor ID', m.vendorId + (m.vendorId === 4476 ? ' <span class="note">IKEA of Sweden</span>' : '')],
+    ['Product ID', m.productId],
+    ['Discriminator', m.discriminator],
+    ['Setup passcode', m.passcode],
+    ['Commissions over', m.capNames.length ? m.capNames.join(', ') : 'not stated'],
+  ];
+  $('fields').innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+  setStatus(null);
+}
+
+function fail(title, detail) {
+  result.hidden = true;
+  setStatus('err', `<strong>${title}</strong>${detail}`);
+}
+
+function handleText(text, quiet) {
+  const m = decodeMatter(text);
+  if (m.ok) { show(m); return true; }
+  if (!quiet) {
+    if (m.reason === 'not-matter') fail('That is a QR code, but not a Matter label', `It reads <code class="inline">${escapeHtml(text.slice(0, 60))}</code>. A Matter setup code starts with <code class="inline">MT:</code>.`);
+    else fail('That MT: payload is malformed', 'Check for a missing or mistyped character and try again.');
+  }
+  return false;
+}
+const escapeHtml = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function readImage(blob) {
+  setStatus('busy', 'Reading the code…');
+  result.hidden = true;
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(blob);
+  } catch (e) {
+    fail('That file could not be opened', 'Try a JPEG or PNG photo.');
+    return;
+  }
+  await new Promise(r => requestAnimationFrame(r));
+
+  // Try a couple of working resolutions: big enough for small codes, small enough to stay quick.
+  const attempts = [1400, 900, 2000];
+  let found = null, used = null;
+  for (const cap of attempts) {
+    const scale = Math.min(1, cap / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale)), h = Math.max(1, Math.round(bitmap.height * scale));
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const cx = c.getContext('2d', { willReadFrequently: true });
+    cx.drawImage(bitmap, 0, 0, w, h);
+    const data = cx.getImageData(0, 0, w, h).data;
+    try { found = decodeQR(data, w, h); } catch (e) { found = null; }
+    if (found) { used = { w, h, scale }; break; }
+    if (scale === 1) break;
+  }
+
+  // Native detector as a rescue for anything the built-in reader misses.
+  if (!found && 'BarcodeDetector' in window) {
+    try {
+      const det = new window.BarcodeDetector({ formats: ['qr_code'] });
+      const codes = await det.detect(bitmap);
+      if (codes && codes.length) found = { text: codes[0].rawValue, corners: null };
+    } catch (e) { /* not available for this format */ }
+  }
+
+  drawPreview(bitmap, found && used ? found.corners : null, used);
+  bitmap.close && bitmap.close();
+
+  if (!found) {
+    fail('No QR code found in that photo', 'Try again with the label filling more of the frame, in even light, and in focus. You can also type the <code class="inline">MT:</code> text below by hand.');
+    return;
+  }
+  handleText(found.text);
+}
+
+function drawPreview(bitmap, corners, used) {
+  const maxW = Math.min(760, drop.clientWidth - 28);
+  const scale = Math.min(1, maxW / bitmap.width);
+  const w = Math.round(bitmap.width * scale), h = Math.round(bitmap.height * scale);
+  preview.width = w; preview.height = h;
+  const cx = preview.getContext('2d');
+  cx.drawImage(bitmap, 0, 0, w, h);
+  if (corners && used) {
+    const k = scale / used.scale;
+    cx.beginPath();
+    corners.forEach((p, i) => { const x = p.x * k, y = p.y * k; i ? cx.lineTo(x, y) : cx.moveTo(x, y); });
+    cx.closePath();
+    cx.lineWidth = Math.max(2, w / 220);
+    cx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--signal').trim() || '#e8a340';
+    cx.stroke();
+  }
+  drop.classList.add('has-image');
+  $('reset').hidden = false;
+}
+
+/* --- input wiring --- */
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => {
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) readImage(f);
+  else {
+    const t = e.dataTransfer.getData('text');
+    if (t) { $('paste').value = t.trim(); handleText(t); }
+  }
+});
+drop.addEventListener('click', () => { if (!drop.classList.contains('has-image')) $('file').click(); });
+drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } });
+$('pick').addEventListener('click', () => $('file').click());
+$('shoot').addEventListener('click', () => $('cam').click());
+$('file').addEventListener('change', e => { if (e.target.files[0]) readImage(e.target.files[0]); e.target.value = ''; });
+$('cam').addEventListener('change', e => { if (e.target.files[0]) readImage(e.target.files[0]); e.target.value = ''; });
+$('reset').addEventListener('click', () => {
+  drop.classList.remove('has-image');
+  $('reset').hidden = true;
+  result.hidden = true;
+  setStatus(null);
+});
+$('decode').addEventListener('click', () => handleText($('paste').value));
+$('paste').addEventListener('keydown', e => { if (e.key === 'Enter') handleText($('paste').value); });
+
+window.addEventListener('paste', e => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const it of items) {
+    if (it.type.startsWith('image/')) { readImage(it.getAsFile()); return; }
+  }
+  const t = e.clipboardData.getData('text');
+  if (t && t.trim().toUpperCase().startsWith('MT:')) { $('paste').value = t.trim(); handleText(t); }
+});
+
+$('copy').addEventListener('click', async () => {
+  const btn = $('copy'), text = $('code').textContent.replace(/-/g, '');
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = 'Copied';
+  } catch (e) {
+    const r = document.createRange();
+    r.selectNodeContents($('code'));
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    btn.textContent = 'Press ⌘C';
+  }
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1800);
+});
+</script>
