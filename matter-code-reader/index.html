@@ -1,4 +1,11 @@
+<meta charset="utf-8">
 <title>Matter Code Reader</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<!-- Safari linkifies 11-digit numbers as phone numbers; the pairing code is 11 digits. -->
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#eef0f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0f1216" media="(prefers-color-scheme: dark)">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -69,11 +76,17 @@
     font-size: 15px;
     line-height: 1.55;
     -webkit-font-smoothing: antialiased;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
   }
   .wrap {
     max-width: 820px;
     margin: 0 auto;
     padding: 40px 20px 64px;
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-right: max(20px, env(safe-area-inset-right));
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
     display: flex;
     flex-direction: column;
     gap: 24px;
@@ -164,7 +177,7 @@
     margin: 0;
     user-select: all;
   }
-  .code-alt { font-family: var(--font-mono); font-size: 13px; color: var(--ink-faint); }
+  .code-alt { font-family: var(--font-mono); font-size: 13px; color: var(--ink-faint); overflow-wrap: anywhere; }
 
   .fields { border-top: 1px solid var(--line); background: var(--surface-sunk); }
   dl { margin: 0; padding: 16px 24px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px 24px; }
@@ -198,6 +211,36 @@
   code.inline { font-family: var(--font-mono); font-size: .92em; background: var(--surface-sunk); padding: 1px 5px; border-radius: 4px; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  /* ---- touch devices ---- */
+  .if-touch { display: none; }
+  @media (pointer: coarse) {
+    .if-pointer { display: none; }
+    .if-touch { display: inline; }
+
+    /* 44px is Apple's minimum tap target. */
+    button { padding: 12px 18px; min-height: 44px; }
+    /* Safari zooms the page in when a focused field is under 16px. */
+    input[type="text"] { font-size: 16px; min-height: 44px; }
+
+    /* On a phone the camera is the main path, so it leads and goes full width. */
+    .actions { gap: 8px; }
+    .actions button { flex: 1 1 auto; }
+    #shoot { order: -1; flex-basis: 100%; background: var(--signal); border-color: var(--signal); color: var(--on-signal); }
+    #pick { background: var(--surface); border-color: var(--line-strong); color: var(--ink); }
+  }
+
+  /* ---- narrow screens ---- */
+  @media (max-width: 560px) {
+    .wrap { padding-top: 24px; gap: 18px; }
+    .drop { min-height: 170px; padding: 20px; }
+    .drop.has-image { padding: 10px; }
+    .lens { width: 32px; height: 32px; }
+    .code-block { padding: 18px 16px 16px; }
+    dl { padding: 14px 16px 18px; gap: 12px 18px; }
+    .status { padding: 12px 14px; }
+    footer { font-size: 12.5px; }
+  }
 </style>
 
 <div class="wrap">
@@ -214,8 +257,8 @@
         <rect x="3" y="14" width="7" height="7" rx="1"></rect>
         <path d="M14 14h3v3h-3zM19 14h2M14 19h3M19 18v3"></path>
       </svg>
-      <span class="drop-title">Drop a photo here</span>
-      <span class="drop-hint">Or click to choose one, paste from the clipboard, or take a picture on your phone. Blurry and angled shots are fine.</span>
+      <span class="drop-title"><span class="if-pointer">Drop a photo here</span><span class="if-touch">Tap to add a photo</span></span>
+      <span class="drop-hint"><span class="if-pointer">Or click to choose one, paste from the clipboard, or take a picture on your phone. Blurry and angled shots are fine.</span><span class="if-touch">Take a picture of the label or pick one from your photos. Blurry and angled shots are fine.</span></span>
     </div>
     <canvas id="preview"></canvas>
   </div>
@@ -247,7 +290,7 @@
   <div class="manual">
     <label for="paste">Already have the payload text? Paste it here.</label>
     <div class="manual-row">
-      <input type="text" id="paste" placeholder="MT:..." spellcheck="false" autocapitalize="characters">
+      <input type="text" id="paste" placeholder="MT:..." spellcheck="false" autocapitalize="characters" autocorrect="off" autocomplete="off">
       <button type="button" id="decode">Decode</button>
     </div>
   </div>
