@@ -1,0 +1,485 @@
+<title>Matter Code Reader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #eef0f4;
+    --surface: #ffffff;
+    --surface-sunk: #e6e9ef;
+    --ink: #14171d;
+    --ink-dim: #5a6273;
+    --ink-faint: #838b9b;
+    --line: #d5dae2;
+    --line-strong: #b9c0cc;
+    --signal: #a8560a;
+    --signal-soft: #f7ead9;
+    --on-signal: #fffaf4;
+    --bad-ink: #a02a21;
+    --bad-soft: #fbe9e7;
+    --shadow: 0 1px 2px rgba(20, 23, 29, .06), 0 8px 24px -12px rgba(20, 23, 29, .18);
+    --font-display: "Archivo", ui-sans-serif, system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --r: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0f1216;
+      --surface: #181c23;
+      --surface-sunk: #12161c;
+      --ink: #e7eaf0;
+      --ink-dim: #99a1b1;
+      --ink-faint: #798291;
+      --line: #272d38;
+      --line-strong: #3a424f;
+      --signal: #e8a340;
+      --signal-soft: #2a2113;
+      --on-signal: #17120a;
+      --bad-ink: #ec8272;
+      --bad-soft: #2c1a17;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -14px rgba(0, 0, 0, .7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0f1216;
+    --surface: #181c23;
+    --surface-sunk: #12161c;
+    --ink: #e7eaf0;
+    --ink-dim: #99a1b1;
+    --ink-faint: #798291;
+    --line: #272d38;
+    --line-strong: #3a424f;
+    --signal: #e8a340;
+    --signal-soft: #2a2113;
+    --on-signal: #17120a;
+    --bad-ink: #ec8272;
+    --bad-soft: #2c1a17;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px -14px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 40px 20px 64px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+
+  header { display: flex; flex-direction: column; gap: 6px; }
+  h1 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: clamp(26px, 5vw, 34px);
+    letter-spacing: -.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .sub { color: var(--ink-dim); margin: 0; max-width: 62ch; }
+
+  /* ---- drop zone ---- */
+  .drop {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 260px;
+    padding: 28px;
+    background: var(--surface);
+    border: 2px dashed var(--line-strong);
+    border-radius: var(--r);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop:focus-visible { border-color: var(--signal); }
+  .drop:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
+  .drop.over { border-color: var(--signal); background: var(--signal-soft); }
+  .drop.has-image { border-style: solid; border-color: var(--line); padding: 14px; min-height: 0; cursor: default; }
+  .drop-inner { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .drop-title { font-family: var(--font-display); font-weight: 600; font-size: 17px; }
+  .drop-hint { color: var(--ink-faint); font-size: 13.5px; max-width: 44ch; }
+  .lens { width: 40px; height: 40px; color: var(--ink-faint); }
+  canvas#preview { display: none; max-width: 100%; height: auto; border-radius: 6px; }
+  .drop.has-image canvas#preview { display: block; }
+  .drop.has-image .drop-inner { display: none; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button {
+    font: inherit;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 14px;
+    padding: 9px 15px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--ink);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  button:hover { border-color: var(--signal); }
+  button:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+  button.primary { background: var(--signal); border-color: var(--signal); color: var(--on-signal); }
+  button.primary:hover { filter: brightness(1.08); }
+
+  /* ---- result ---- */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .card[hidden] { display: none; }
+  .code-block { padding: 22px 24px 20px; display: flex; flex-direction: column; gap: 4px; }
+  .eyebrow {
+    font-family: var(--font-display);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .code-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .code {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(30px, 7vw, 44px);
+    letter-spacing: .01em;
+    color: var(--signal);
+    margin: 0;
+    user-select: all;
+  }
+  .code-alt { font-family: var(--font-mono); font-size: 13px; color: var(--ink-faint); }
+
+  .fields { border-top: 1px solid var(--line); background: var(--surface-sunk); }
+  dl { margin: 0; padding: 16px 24px 20px; display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px 24px; }
+  dt { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-faint); font-weight: 600; }
+  dd { margin: 2px 0 0; font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ink); overflow-wrap: anywhere; }
+  dd .note { font-family: var(--font-body); color: var(--ink-dim); font-size: 13px; }
+
+  .status { padding: 14px 18px; border-radius: var(--r); border: 1px solid var(--line); background: var(--surface); font-size: 14.5px; }
+  .status[hidden] { display: none; }
+  .status.err { border-color: var(--bad-ink); background: var(--bad-soft); color: var(--bad-ink); }
+  .status.err strong { display: block; font-family: var(--font-display); margin-bottom: 2px; }
+  .status.busy { color: var(--ink-dim); }
+
+  .manual { display: flex; flex-direction: column; gap: 8px; }
+  .manual label { font-size: 13px; color: var(--ink-dim); }
+  .manual-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  input[type="text"] {
+    flex: 1 1 260px;
+    font-family: var(--font-mono);
+    font-size: 14px;
+    padding: 9px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--surface);
+    color: var(--ink);
+  }
+  input[type="text"]:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; border-color: var(--signal); }
+
+  footer { color: var(--ink-faint); font-size: 13px; border-top: 1px solid var(--line); padding-top: 16px; }
+  footer p { margin: 0 0 6px; max-width: 66ch; }
+  code.inline { font-family: var(--font-mono); font-size: .92em; background: var(--surface-sunk); padding: 1px 5px; border-radius: 4px; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Matter Code Reader</h1>
+    <p class="sub">Drop a photo of the QR label on a Matter device and get the 11-digit manual pairing code you can type into Home Assistant.</p>
+  </header>
+
+  <div class="drop" id="drop" tabindex="0" role="button" aria-label="Drop a QR photo here, or press Enter to choose a file">
+    <div class="drop-inner">
+      <svg class="lens" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+        <rect x="3" y="3" width="7" height="7" rx="1"></rect>
+        <rect x="14" y="3" width="7" height="7" rx="1"></rect>
+        <rect x="3" y="14" width="7" height="7" rx="1"></rect>
+        <path d="M14 14h3v3h-3zM19 14h2M14 19h3M19 18v3"></path>
+      </svg>
+      <span class="drop-title">Drop a photo here</span>
+      <span class="drop-hint">Or click to choose one, paste from the clipboard, or take a picture on your phone. Blurry and angled shots are fine.</span>
+    </div>
+    <canvas id="preview"></canvas>
+  </div>
+
+  <div class="actions">
+    <button type="button" id="pick" class="primary">Choose photo</button>
+    <button type="button" id="shoot">Take picture</button>
+    <button type="button" id="reset" hidden>Clear</button>
+    <input type="file" id="file" accept="image/*" class="sr">
+    <input type="file" id="cam" accept="image/*" capture="environment" class="sr">
+  </div>
+
+  <div class="status" id="status" hidden></div>
+
+  <div class="card" id="result" hidden>
+    <div class="code-block">
+      <span class="eyebrow">Manual pairing code</span>
+      <div class="code-row">
+        <p class="code" id="code">0000-000-0000</p>
+        <button type="button" id="copy">Copy</button>
+      </div>
+      <span class="code-alt" id="codeplain"></span>
+    </div>
+    <div class="fields">
+      <dl id="fields"></dl>
+    </div>
+  </div>
+
+  <div class="manual">
+    <label for="paste">Already have the payload text? Paste it here.</label>
+    <div class="manual-row">
+      <input type="text" id="paste" placeholder="MT:..." spellcheck="false" autocapitalize="characters">
+      <button type="button" id="decode">Decode</button>
+    </div>
+  </div>
+
+  <footer>
+    <p>Everything runs in this page. Your photo is never uploaded &mdash; the QR is located and decoded in the browser, and nothing leaves your device.</p>
+    <p>In Home Assistant, go to <em>Settings &rarr; Devices &amp; Services &rarr; Add Integration &rarr; Matter</em> and choose the option for entering a code by hand. The <code class="inline">MT:</code> payload usually works there too.</p>
+  </footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"
+        integrity="sha384-b5Ya4Bq3qCyz39m2ISh+4DxjAIljdeFwK/BsXLuj9gugaNwAcj/ia15fxNZL9Nlx"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script>
+"use strict";
+
+/* ============================ QR decode ============================ */
+/* jsQR does the reading; the two helpers below only feed it pixels and
+   normalise what comes back to { text, corners, scale }, where scale says how
+   the corner coordinates relate to the full-size bitmap. */
+
+const JSQR_CORNERS = ['topLeftCorner', 'topRightCorner', 'bottomRightCorner', 'bottomLeftCorner'];
+
+// The browser's own detector, where there is one. It copes with glare and
+// steep angles better than anything we can run in JS, so it goes first.
+async function detectNative(bitmap) {
+  if (!('BarcodeDetector' in window)) return null;
+  try {
+    const det = new window.BarcodeDetector({ formats: ['qr_code'] });
+    const [code] = await det.detect(bitmap);
+    if (!code) return null;
+    return { text: code.rawValue, corners: code.cornerPoints || null, scale: 1 };
+  } catch (e) {
+    return null; // qr_code not supported on this platform
+  }
+}
+
+// jsQR wants raw RGBA, so the bitmap goes through a canvas. Try a couple of
+// working resolutions: big enough for small codes, small enough to stay quick.
+function detectJsQR(bitmap) {
+  for (const cap of [1400, 900, 2000]) {
+    const scale = Math.min(1, cap / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const cx = c.getContext('2d', { willReadFrequently: true });
+    cx.drawImage(bitmap, 0, 0, w, h);
+    const { data } = cx.getImageData(0, 0, w, h);
+    const found = jsQR(data, w, h, { inversionAttempts: 'attemptBoth' });
+    if (found) return { text: found.data, corners: JSQR_CORNERS.map(k => found.location[k]), scale };
+    if (scale === 1) break; // already at full size, larger caps add nothing
+  }
+  return null;
+}
+
+/* ============================ Matter payload ============================ */
+const B38 = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-.';
+const VD = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]];
+const VP = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
+const VINV = [0,4,3,2,1,5,6,7,8,9];
+function verhoeff(num) { let c = 0; for (let i = 0; i < num.length; i++) c = VD[c][VP[(i + 1) % 8][+num[num.length - 1 - i]]]; return VINV[c]; }
+
+function decodeMatter(raw) {
+  const s = String(raw).trim().toUpperCase().replace(/\s+/g, '');
+  if (!s.startsWith('MT:')) return { ok: false, reason: 'not-matter', text: s };
+  const body = s.slice(3);
+  if (!/^[0-9A-Z\-.]+$/.test(body)) return { ok: false, reason: 'bad', text: s };
+  const bytes = [];
+  for (let i = 0; i < body.length; i += 5) {
+    const chunk = body.slice(i, i + 5);
+    const n = { 5: 3, 4: 2, 2: 1 }[chunk.length];
+    if (!n) return { ok: false, reason: 'bad', text: s };
+    let v = 0;
+    for (let j = 0; j < chunk.length; j++) {
+      const idx = B38.indexOf(chunk[j]);
+      if (idx < 0) return { ok: false, reason: 'bad', text: s };
+      v += idx * 38 ** j;
+    }
+    for (let k = 0; k < n; k++) bytes.push((v >> (8 * k)) & 0xff);
+  }
+  if (bytes.length < 11) return { ok: false, reason: 'bad', text: s };
+  const bits = (off, len) => { let v = 0; for (let i = 0; i < len; i++) { const b = off + i; v += ((bytes[b >> 3] >> (b & 7)) & 1) * 2 ** i; } return v; };
+  const vendorId = bits(3, 16), productId = bits(19, 16);
+  const caps = bits(37, 8), discriminator = bits(45, 12), passcode = bits(57, 27);
+  if (passcode === 0) return { ok: false, reason: 'bad', text: s };
+  const short = (discriminator >> 8) & 0xf;
+  const partial = `${short >> 2}${String(((short & 3) << 14) | (passcode & 0x3fff)).padStart(5, '0')}${String(passcode >> 14).padStart(4, '0')}`;
+  const code = partial + verhoeff(partial);
+  const capNames = [[0, 'Soft-AP'], [1, 'Bluetooth LE'], [2, 'On network'], [3, 'Wi-Fi PAF']].filter(([b]) => caps >> b & 1).map(([, n]) => n);
+  return {
+    ok: true, text: s, code,
+    pretty: `${code.slice(0, 4)}-${code.slice(4, 7)}-${code.slice(7)}`,
+    vendorId, productId, discriminator, capNames,
+    passcode: String(passcode).padStart(8, '0'),
+  };
+}
+
+/* ============================ UI ============================ */
+const $ = id => document.getElementById(id);
+const drop = $('drop'), preview = $('preview'), statusEl = $('status'), result = $('result');
+
+function setStatus(kind, html) {
+  if (!kind) { statusEl.hidden = true; return; }
+  statusEl.hidden = false;
+  statusEl.className = 'status ' + kind;
+  statusEl.innerHTML = html;
+}
+
+function show(m) {
+  result.hidden = false;
+  $('code').textContent = m.pretty;
+  $('codeplain').textContent = m.code + '  ·  ' + m.text;
+  const rows = [
+    ['Vendor ID', m.vendorId + (m.vendorId === 4476 ? ' <span class="note">IKEA of Sweden</span>' : '')],
+    ['Product ID', m.productId],
+    ['Discriminator', m.discriminator],
+    ['Setup passcode', m.passcode],
+    ['Commissions over', m.capNames.length ? m.capNames.join(', ') : 'not stated'],
+  ];
+  $('fields').innerHTML = rows.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+  setStatus(null);
+}
+
+function fail(title, detail) {
+  result.hidden = true;
+  setStatus('err', `<strong>${title}</strong>${detail}`);
+}
+
+function handleText(text, quiet) {
+  const m = decodeMatter(text);
+  if (m.ok) { show(m); return true; }
+  if (!quiet) {
+    if (m.reason === 'not-matter') fail('That is a QR code, but not a Matter label', `It reads <code class="inline">${escapeHtml(text.slice(0, 60))}</code>. A Matter setup code starts with <code class="inline">MT:</code>.`);
+    else fail('That MT: payload is malformed', 'Check for a missing or mistyped character and try again.');
+  }
+  return false;
+}
+const escapeHtml = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function readImage(blob) {
+  setStatus('busy', 'Reading the code…');
+  result.hidden = true;
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(blob);
+  } catch (e) {
+    fail('That file could not be opened', 'Try a JPEG or PNG photo.');
+    return;
+  }
+  await new Promise(r => requestAnimationFrame(r));
+
+  const found = (await detectNative(bitmap)) || detectJsQR(bitmap);
+
+  drawPreview(bitmap, found && found.corners, found && found.scale);
+  bitmap.close && bitmap.close();
+
+  if (!found) {
+    fail('No QR code found in that photo', 'Try again with the label filling more of the frame, in even light, and in focus. You can also type the <code class="inline">MT:</code> text below by hand.');
+    return;
+  }
+  handleText(found.text);
+}
+
+// `sourceScale` is the scale the corners were measured at, relative to the bitmap.
+function drawPreview(bitmap, corners, sourceScale) {
+  const maxW = Math.min(760, drop.clientWidth - 28);
+  const scale = Math.min(1, maxW / bitmap.width);
+  const w = Math.round(bitmap.width * scale), h = Math.round(bitmap.height * scale);
+  preview.width = w; preview.height = h;
+  const cx = preview.getContext('2d');
+  cx.drawImage(bitmap, 0, 0, w, h);
+  if (corners && sourceScale) {
+    const k = scale / sourceScale;
+    cx.beginPath();
+    corners.forEach((p, i) => { const x = p.x * k, y = p.y * k; i ? cx.lineTo(x, y) : cx.moveTo(x, y); });
+    cx.closePath();
+    cx.lineWidth = Math.max(2, w / 220);
+    cx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--signal').trim() || '#e8a340';
+    cx.stroke();
+  }
+  drop.classList.add('has-image');
+  $('reset').hidden = false;
+}
+
+/* --- input wiring --- */
+['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => {
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) readImage(f);
+  else {
+    const t = e.dataTransfer.getData('text');
+    if (t) { $('paste').value = t.trim(); handleText(t); }
+  }
+});
+drop.addEventListener('click', () => { if (!drop.classList.contains('has-image')) $('file').click(); });
+drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } });
+$('pick').addEventListener('click', () => $('file').click());
+$('shoot').addEventListener('click', () => $('cam').click());
+$('file').addEventListener('change', e => { if (e.target.files[0]) readImage(e.target.files[0]); e.target.value = ''; });
+$('cam').addEventListener('change', e => { if (e.target.files[0]) readImage(e.target.files[0]); e.target.value = ''; });
+$('reset').addEventListener('click', () => {
+  drop.classList.remove('has-image');
+  $('reset').hidden = true;
+  result.hidden = true;
+  setStatus(null);
+});
+$('decode').addEventListener('click', () => handleText($('paste').value));
+$('paste').addEventListener('keydown', e => { if (e.key === 'Enter') handleText($('paste').value); });
+
+window.addEventListener('paste', e => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  for (const it of items) {
+    if (it.type.startsWith('image/')) { readImage(it.getAsFile()); return; }
+  }
+  const t = e.clipboardData.getData('text');
+  if (t && t.trim().toUpperCase().startsWith('MT:')) { $('paste').value = t.trim(); handleText(t); }
+});
+
+$('copy').addEventListener('click', async () => {
+  const btn = $('copy'), text = $('code').textContent.replace(/-/g, '');
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = 'Copied';
+  } catch (e) {
+    const r = document.createRange();
+    r.selectNodeContents($('code'));
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    btn.textContent = 'Press ⌘C';
+  }
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1800);
+});
+</script>

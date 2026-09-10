@@ -1,0 +1,10 @@
+{
+  // Static-only Worker: no server code, just the files in matter-code-reader/.
+  // Scoped to that directory on purpose so the rest of the repo (check-thread.sh
+  // and anything added later) is not published.
+  "name": "home",
+  "compatibility_date": "2026-09-10",
+  "assets": {
+    "directory": "./matter-code-reader"
+  }
+}
